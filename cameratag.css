@@ -251,7 +251,7 @@
   background: #c7084b;
   color:#fff;
   text-decoration: none;
-} 
+}
 
 
 .camera_tag .cameratag_screen.cameratag_check_phone .cameratag_check_phone_prompt {
@@ -311,14 +311,14 @@
 }
 
 .cameratag_primary_link.cameratag_sms_link {
-  
+
 }
 .cameratag_primary_link.cameratag_sms_link:hover {
-  
+
 }
 
 .cameratag_primary_link.cameratag_upload_link {
-  
+
 }
 .cameratag_primary_link.cameratag_upload_link:hover {
 
@@ -678,7 +678,7 @@
 
 .cameratag_photobooth_upload_status {
   font-size: 4em;
-  margin-top: 20%;  
+  margin-top: 20%;
 }
 
 .cameratag_photobooth_trigger:hover {
@@ -689,7 +689,7 @@
 .cameratag_photobooth_error_message {
   margin-top: 15%;
   padding: 20px;
-  font-size: 1.5em;  
+  font-size: 1.5em;
 }
 
 .cameratag_photobooth_filter_properties {
