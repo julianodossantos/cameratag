@@ -343,11 +343,13 @@ if (typeof(CameraTag) == "undefined") {
     };
 
     var fire_handlers = function(camera_dom_id,event_name,data) {
-      for( i = 0; i < callbacks[camera_dom_id][event_name].length; i++ ) {
-        try {
-          callbacks[camera_dom_id][event_name][i](data);
+      if (typeof(callbacks[camera_dom_id][event_name]) == "object") {
+        for( i = 0; i < callbacks[camera_dom_id][event_name].length; i++ ) {
+          try {
+            callbacks[camera_dom_id][event_name][i](data);
+          }
+          catch(err) {}
         }
-        catch(err) {}
       }
     }
 
@@ -749,24 +751,6 @@ if (typeof(CameraTag) == "undefined") {
     }
   }
 
-  self.remove = function() {
-    clearTimeout(processed_timer);
-    clearTimeout(published_timer);
-    clearInterval(record_timer);
-    countdown_counter = 0;
-    record_timer_count = 0;
-    uploading = false;
-    error_messages = [];
-    readyToPublish = false;
-    if (connected) {
-      self.disconnect();  
-    }
-    self.uploader.destroy();
-    container.remove();
-    delete CameraTag.cameras[dom_id];
-    delete callbacks[dom_id];
-  }
-
   self.getState = function() {
     return state;
   };
@@ -837,12 +821,12 @@ if (typeof(CameraTag) == "undefined") {
 
   var createUploader = function() {
     uploader = new Evaporate({
-       signerUrl: '//'+appServer+'/api/v'+CameraTag.version+'/videos/upload_signature',
-       aws_key: 'AKIAJCHWZMZ35EB62V2A',
-       bucket: 'assets.cameratag.com',
-       aws_url: 'https://d2az0z6s4nrieh.cloudfront.net',
-       cloudfront: true,
-       logging: false
+      signerUrl: '//'+appServer+'/api/v'+CameraTag.version+'/videos/upload_signature',
+      aws_key: 'AKIAJCHWZMZ35EB62V2A',
+      bucket: 'assets.cameratag.com',
+      aws_url: 'https://d2az0z6s4nrieh.cloudfront.net',
+      cloudfront: true,
+      logging: false
     });
 
     self.uploader = uploader;
@@ -905,10 +889,10 @@ if (typeof(CameraTag) == "undefined") {
 
       // recorder API (swf or WebRTC)
       embedRecordingStack();
-
-      // communication to and from swf
-      setupExternalInterface();
     }
+
+    // communication to and from recorder
+    setupExternalInterface();
 
     // settings screen
     if (sources.indexOf("record") != -1) {
@@ -1414,6 +1398,14 @@ if (typeof(CameraTag) == "undefined") {
     record_timer_prompt.html( "(" + formatted_seconds(new_length) + ")" );
   }
 
+  self.setSignature = function(new_signature) {
+    signature = new_signature;
+  }
+
+  self.setSignatureExpiration = function(new_expiration) {
+    signature_expiration = new_expiration;
+  }
+
   self.setMinLength = function(new_length) {
     minLength = new_length;
   }
@@ -1475,14 +1467,45 @@ if (typeof(CameraTag) == "undefined") {
   }
 
   self.destroy = function() {
-    state = "disconnecting";
-    if (recorder && connected) {
-      recorder.disconnect();
-    }
-    delete CameraTag.cameras[dom_id];
-    container.remove();
-  }
+    clearTimeout(processed_timer);
+    clearTimeout(published_timer);
+    clearInterval(record_timer);
+    countdown_counter = 0;
+    record_timer_count = 0;
+    uploading = false;
+    error_messages = [];
+    readyToPublish = false;
+    publishType = webrtc_enabled ? "mediarecorder" : "webcam";
 
+    if (connected) {
+      CameraTag.observe(dom_id, "serverDisconnected", self.destroy);
+      self.disconnect();
+
+    } else {
+      CameraTag.stopObserving(dom_id, "serverDisconnected", self.destroy);
+      delete CameraTag.cameras[dom_id];
+      container.remove();
+      // copy old callbacks to temp then kill them
+      if (callbacks[dom_id]["destroyed"]) {
+        var destroy_callbacks = callbacks[dom_id]["destroyed"].slice();
+      } else {
+        var destroy_callbacks = [];
+      }
+      
+      callbacks[dom_id] = {}
+      // run destroy_callbacks callbacks
+      if (destroy_callbacks) {
+        setTimeout(function(){
+          for( i = 0; i < destroy_callbacks.length; i++ ) {
+            try {
+              destroy_callbacks[i]();
+            }
+            catch(err) {}
+          }  
+        }, 750);
+      }
+    }
+  }
 
   var create_uploader = function(browse_element) {
     var upload_source_index = sources.indexOf("upload");
@@ -1591,22 +1614,26 @@ if (typeof(CameraTag) == "undefined") {
   var setupExternalInterface = function() {
     // communication to swf
     self.play = function() {
-      if (connected) {
+      if (recorder && connected) {
         recorder.startPlayback();
       }
     };
 
     self.setVideoBitrate = function(rate) {
-      recorder.setVideoBitrate(rate);
+      if (recorder) {
+        recorder.setVideoBitrate(rate);
+      }
     };
 
     self.showFlashSettings = function() {
-      self.loadInterface("none");
-      recorder.showFlashSettings();
+      if (recorder) {
+        self.loadInterface("none");
+        recorder.showFlashSettings();
+      }
     }
 
     self.record = function() { // actually calls countdown which will call record_without_countdown in callback
-      if (connected) {
+      if (recorder && connected) {
         CameraTag.fire(dom_id, "countdownStarted");
         recorder.showRecorder();
         countdown(preRollLength, self.record_without_countdown);
@@ -1618,11 +1645,15 @@ if (typeof(CameraTag) == "undefined") {
     };
 
     self.showRecorder = function() {
-      recorder.showRecorder();
+      if (recorder) {
+        recorder.showRecorder();
+      }
     }
 
     self.showPlayer = function() {
-      recorder.showPlayer(); 
+      if (recorder) {
+        recorder.showPlayer(); 
+      }
     }
 
     self.record_without_countdown = function() {
@@ -1630,14 +1661,15 @@ if (typeof(CameraTag) == "undefined") {
         //sendStat("premature_record");
         throw("Camera not ready to record. Please observe 'readyToRecord' event before recording");
         return;  
+      } else if (recorder) {
+        state = "recording";
+        recorder.showRecorder();
+        recorder.startRecording();
       }
-      state = "recording";
-      recorder.showRecorder();
-      recorder.startRecording()  
     };
 
     self.stopPlayback = function() {
-      if (connected) {
+      if (recorder && connected) {
         recorder.stopPlayback();  
       }
     };
@@ -1645,7 +1677,7 @@ if (typeof(CameraTag) == "undefined") {
     self.stopRecording = function() {
       if (record_timer_count >= minLength) {
         clearInterval(record_timer);
-        if (connected) {
+        if (recorder && connected) {
           recorder.stopRecording();  
         }  
       } else {
@@ -1654,12 +1686,16 @@ if (typeof(CameraTag) == "undefined") {
     };
 
     self.connect = function() {
-      recorder.connect();
+      if (recorder) {
+        recorder.connect();
+      }
     };
 
     self.disconnect = function() {
-      state = "disconnecting";
-      recorder.disconnect();
+      if (recorder) {
+        state = "disconnecting";
+        recorder.disconnect();
+      }
     };
   }
 
@@ -1873,9 +1909,7 @@ if (typeof(CameraTag) == "undefined") {
     }, true);
   }
 
-
-
-  var WebRTCRecorder = function(){
+  var WebRTCRecorder = function() {
     var self = this;
     var recordVideo;
     var videoPreview = $('<video id="'+dom_id+'-video-preview" style="width:100%; height:100%; object-fit: fill;"></video>');
@@ -2037,7 +2071,7 @@ if (typeof(CameraTag) == "undefined") {
     self.disconnect = function() {
       if (connected) {
         wrtc_stream.stop();
-        connected = false;
+        CameraTag.fire(dom_id, "serverDisconnected");
       }
     };
 
